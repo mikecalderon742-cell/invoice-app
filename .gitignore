@@ -1,0 +1,4 @@
+.env
+invoices.db
+invoice_*.pdf
+__pycache__/
