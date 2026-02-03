@@ -1,4 +1,4 @@
 .env
-invoices.db
-invoice_*.pdf
+*.db
+*.pdf
 __pycache__/
