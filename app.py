@@ -393,8 +393,11 @@ def upgrade():
             "price": STRIPE_PRICE_ID,
             "quantity": 1
         }],
-        success_url="http://127.0.0.1:5000/success",
-        cancel_url="http://127.0.0.1:5000/"
+        BASE_URL = os.environ.get("BASE_URL")
+
+success_url=f"{BASE_URL}/success",
+cancel_url=f"{BASE_URL}/"
+
     )
 
     return f"""
@@ -466,10 +469,7 @@ def stripe_webhook():
 # ---------- RUN ----------
 
 if __name__ == "__main__":
-    app.run(
-        host="127.0.0.1",
-        port=5000,
-        debug=False
-    )
+    app.run(host="0.0.0.0", port=10000)
+
 
 
