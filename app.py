@@ -14,11 +14,15 @@ STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 BASE_URL = os.environ.get("BASE_URL")
 
+if not STRIPE_SECRET_KEY or not STRIPE_PRICE_ID or not STRIPE_WEBHOOK_SECRET or not BASE_URL:
+    raise RuntimeError("Required Stripe environment variables are not set")
+
 stripe.api_key = STRIPE_SECRET_KEY
 
 # ---------- APP CONFIG ----------
 DATABASE = "invoices.db"
 FREE_INVOICE_LIMIT = 3
+
 
 
 # ================= STRIPE CONFIG =================
