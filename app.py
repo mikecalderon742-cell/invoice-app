@@ -380,17 +380,14 @@ def pdf(invoice_id):
 @app.route("/upgrade")
 def upgrade():
     session = stripe.checkout.Session.create(
-       payment_method_types=["card"],
+        payment_method_types=["card"],
         mode="subscription",
         line_items=[{
             "price": STRIPE_PRICE_ID,
             "quantity": 1
         }],
-        BASE_URL = os.environ.get("BASE_URL")
-
-success_url=f"{BASE_URL}/success",
-cancel_url=f"{BASE_URL}/"
-
+        success_url=f"{BASE_URL}/success",
+        cancel_url=f"{BASE_URL}/"
     )
 
     return f"""
@@ -398,6 +395,7 @@ cancel_url=f"{BASE_URL}/"
         window.location.href = "{session.url}";
     </script>
     """
+
 
 
 @app.route("/success")
