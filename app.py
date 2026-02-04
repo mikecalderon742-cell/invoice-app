@@ -9,15 +9,25 @@ import stripe
 app = Flask(__name__)
 
 # ---------- ENV / STRIPE ----------
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
-STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
-BASE_URL = os.environ.get("BASE_URL")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+BASE_URL = os.environ.get("BASE_URL", "").strip()
 
-if not STRIPE_SECRET_KEY or not STRIPE_PRICE_ID or not STRIPE_WEBHOOK_SECRET or not BASE_URL:
-    raise RuntimeError("Required Stripe environment variables are not set")
+if not STRIPE_SECRET_KEY:
+    raise RuntimeError("STRIPE_SECRET_KEY missing")
+
+if not STRIPE_PRICE_ID:
+    raise RuntimeError("STRIPE_PRICE_ID missing")
+
+if not STRIPE_WEBHOOK_SECRET:
+    raise RuntimeError("STRIPE_WEBHOOK_SECRET missing")
+
+if not BASE_URL:
+    raise RuntimeError("BASE_URL missing")
 
 stripe.api_key = STRIPE_SECRET_KEY
+
 
 # ---------- APP CONFIG ----------
 DATABASE = "invoices.db"
@@ -390,12 +400,7 @@ def upgrade():
         cancel_url=f"{BASE_URL}/"
     )
 
-    return f"""
-    <script>
-        window.location.href = "{session.url}";
-    </script>
-    """
-
+    return redirect(session.url)
 
 
 @app.route("/success")
