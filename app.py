@@ -447,6 +447,7 @@ def stripe_webhook():
         return "Invalid signature", 400
 
     if event["type"] == "checkout.session.completed":
+       print("🔥 WEBHOOK RECEIVED:", event["type"])
         conn = sqlite3.connect(DATABASE)
         c = conn.cursor()
         c.execute("""
@@ -463,6 +464,13 @@ def stripe_webhook():
 
 
 # ---------- RUN ----------
+@app.route("/success")
+def success():
+    return """
+    <h1>✅ Payment Successful</h1>
+    <p>You are now a PRO member.</p>
+    <a href="/">Return to app</a>
+    """
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
