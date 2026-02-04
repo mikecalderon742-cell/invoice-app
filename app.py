@@ -1,9 +1,22 @@
+import os
+from pathlib import Path
+
+print("RUNNING FROM:", os.getcwd())
+
+# Load .env explicitly (safe locally, ignored on Render)
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=env_path)
+except Exception:
+    pass
+
 from flask import Flask, request, send_file, redirect
 import sqlite3
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
-import os
 import stripe
+
 
 # ---------- APP ----------
 app = Flask(__name__)
@@ -32,6 +45,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 # ---------- APP CONFIG ----------
 DATABASE = "invoices.db"
 FREE_INVOICE_LIMIT = 3
+
 
 
 
@@ -389,20 +403,26 @@ def pdf(invoice_id):
 
 @app.route("/upgrade")
 def upgrade():
-    BASE_URL = os.environ.get("BASE_URL")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{
+                "price": STRIPE_PRICE_ID,
+                "quantity": 1
+            }],
+            success_url=f"{BASE_URL}/success",
+            cancel_url=f"{BASE_URL}/"
+        )
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        mode="subscription",
-        line_items=[{
-            "price": STRIPE_PRICE_ID,
-            "quantity": 1
-        }],
-        success_url=f"{BASE_URL}/success",
-        cancel_url=f"{BASE_URL}/"
-    )
+        return redirect(session.url, code=303)
 
-    return redirect(session.url, code=303)
+    except Exception as e:
+        # SHOW THE REAL STRIPE ERROR
+        return f"""
+        <h2>Stripe Error</h2>
+        <pre>{str(e)}</pre>
+        """, 500
 
 
 
