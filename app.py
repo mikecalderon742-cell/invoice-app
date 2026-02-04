@@ -461,13 +461,6 @@ def stripe_webhook():
 
 
 # ---------- RUN ----------
-@app.route("/success")
-def success():
-    return """
-    <h1>✅ Payment Successful</h1>
-    <p>You are now a PRO member.</p>
-    <a href="/">Return to app</a>
-    """
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
