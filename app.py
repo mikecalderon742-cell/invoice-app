@@ -4,33 +4,22 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 import os
 import stripe
-from dotenv import load_dotenv
-from pathlib import Path
 
-# FORCE dotenv to load THIS project's .env only
+# ---------- APP ----------
+app = Flask(__name__)
 
-env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
-
+# ---------- ENV / STRIPE ----------
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
-
-if not STRIPE_SECRET_KEY or not STRIPE_PRICE_ID:
-    raise RuntimeError("Stripe environment variables are not set")
-
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+BASE_URL = os.environ.get("BASE_URL")
 
 stripe.api_key = STRIPE_SECRET_KEY
 
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
-
-if not STRIPE_WEBHOOK_SECRET:
-    raise RuntimeError("Stripe webhook secret not set")
-
-
-
-app = Flask(__name__)
+# ---------- APP CONFIG ----------
 DATABASE = "invoices.db"
 FREE_INVOICE_LIMIT = 3
+
 
 # ================= STRIPE CONFIG =================
 
