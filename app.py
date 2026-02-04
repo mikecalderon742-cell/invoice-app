@@ -389,6 +389,8 @@ def pdf(invoice_id):
 
 @app.route("/upgrade")
 def upgrade():
+    BASE_URL = os.environ.get("BASE_URL")
+
     session = stripe.checkout.Session.create(
         payment_method_types=["card"],
         mode="subscription",
@@ -400,7 +402,8 @@ def upgrade():
         cancel_url=f"{BASE_URL}/"
     )
 
-    return redirect(session.url)
+    return redirect(session.url, code=303)
+
 
 
 @app.route("/success")
@@ -435,32 +438,26 @@ def stripe_webhook():
     payload = request.data
     sig_header = request.headers.get("Stripe-Signature")
 
-    try:
-        event = stripe.Webhook.construct_event(
-            payload,
-            sig_header,
-            STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError:
-        return "Invalid payload", 400
-    except stripe.error.SignatureVerificationError:
-        return "Invalid signature", 400
+    event = stripe.Webhook.construct_event(
+        payload,
+        sig_header,
+        STRIPE_WEBHOOK_SECRET
+    )
 
     if event["type"] == "checkout.session.completed":
-       print("🔥 WEBHOOK RECEIVED:", event["type"])
         conn = sqlite3.connect(DATABASE)
         c = conn.cursor()
+
         c.execute("""
-            UPDATE settings
-            SET value = '1'
-            WHERE key = 'is_paid'
+            INSERT OR REPLACE INTO settings (key, value)
+            VALUES ('is_paid', '1')
         """)
+
         conn.commit()
         conn.close()
 
-        print("✅ User upgraded to PRO via webhook")
-
     return "", 200
+
 
 
 # ---------- RUN ----------
