@@ -1,3 +1,5 @@
 flask
+stripe
+python-dotenv
 reportlab
 gunicorn
