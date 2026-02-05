@@ -182,14 +182,26 @@ def pdf(invoice_id):
 
 @app.route("/upgrade")
 def upgrade():
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        payment_method_types=["card"],
-        line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-        success_url=f"{BASE_URL}/success",
-        cancel_url=f"{BASE_URL}/"
-    )
-    return redirect(session.url)
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            line_items=[{
+                "price": STRIPE_PRICE_ID,
+                "quantity": 1
+            }],
+            success_url=f"{BASE_URL}/success",
+            cancel_url=f"{BASE_URL}/"
+        )
+
+        return redirect(session.url, code=303)
+
+    except Exception as e:
+        # SHOW THE REAL STRIPE ERROR
+        return f"""
+        <h2>Stripe Error</h2>
+        <pre>{str(e)}</pre>
+        """, 500
 
 @app.route("/success")
 def success():
