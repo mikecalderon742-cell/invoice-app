@@ -191,33 +191,43 @@ def pdf(invoice_id):
 
 @app.route("/upgrade")
 def upgrade():
-    try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            mode="subscription",
-            line_items=[{
-                "price": STRIPE_PRICE_ID,
-                "quantity": 1
-            }],
-            success_url=f"{BASE_URL}/success",
-            cancel_url=f"{BASE_URL}/"
-        )
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        line_items=[{
+            "price": STRIPE_PRICE_ID,
+            "quantity": 1
+        }],
+        success_url=f"{BASE_URL}/success",
+        cancel_url=f"{BASE_URL}/"
+    )
 
-        return redirect(session.url, code=303)
+    # Redirect user to Stripe Checkout
+    return redirect(session.url, code=303)
 
-    except Exception as e:
-        # SHOW THE REAL STRIPE ERROR
-        return f"""
-        <h2>Stripe Error</h2>
-        <pre>{str(e)}</pre>
-        """, 500
+
+@app.route("/success")
+def success():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("UPDATE settings SET value='1' WHERE key='is_paid'")
+    conn.commit()
+    conn.close()
+
+    return """
+    <h2>Payment Successful 🎉</h2>
+    <p>You now have unlimited invoices and PDF downloads.</p>
+    <p><a href="/">Create invoice</a></p>
+    <p><a href="/invoices">View invoices</a></p>
+    """
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     payload = request.data
     sig = request.headers.get("Stripe-Signature")
-    event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    event = stripe.Webhook.construct_event(
+        payload, sig, STRIPE_WEBHOOK_SECRET
+    )
 
     if event["type"] == "checkout.session.completed":
         conn = sqlite3.connect(DATABASE)
@@ -227,6 +237,7 @@ def webhook():
         conn.close()
 
     return "", 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
