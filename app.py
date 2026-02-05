@@ -207,10 +207,23 @@ def upgrade():
 def success():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    c.execute("UPDATE settings SET value='1' WHERE key='is_paid'")
+    c.execute("""
+        UPDATE settings
+        SET value='1'
+        WHERE key='is_paid'
+    """)
     conn.commit()
     conn.close()
-    return "<h2>Payment successful 🎉</h2><a href='/'>Home</a>"
+
+    return PAGE_STYLE + """
+    <div class="container">
+        <h2>Payment Successful 🎉</h2>
+        <p>You now have unlimited invoices and PDF downloads.</p>
+
+        <a href="/">Create invoice</a>
+        <a href="/invoices">View invoices</a>
+    </div>
+    """ + FOOTER
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
