@@ -212,28 +212,7 @@ def upgrade():
         <pre>{str(e)}</pre>
         """, 500
 
-@app.route("/success")
-def success():
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-
-    c.execute("""
-        INSERT OR REPLACE INTO settings (key, value)
-        VALUES ('is_paid', '1')
-    """)
-
-    conn.commit()
-    conn.close()
-
-    return PAGE_STYLE + """
-    <div class="container">
-        <h2>Payment Successful 🎉</h2>
-        <p>You now have unlimited invoices and PDF downloads.</p>
-
-        <a href="/">Create invoice</a>
-        <a href="/invoices">View invoices</a>
-    </div>
-    """ + FOOTER
+https://github.com/mikecalderon742-cell/invoice-app
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
