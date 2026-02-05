@@ -396,8 +396,6 @@ def pdf(invoice_id):
 
     return send_file(file_path, as_attachment=True)
 
-
-
 # ---------- STRIPE ROUTES ----------
 @app.route("/upgrade")
 def upgrade():
@@ -421,8 +419,6 @@ def upgrade():
         <pre>{str(e)}</pre>
         """, 500
 
-
-
 @app.route("/success")
 def success():
     conn = sqlite3.connect(DATABASE)
@@ -434,9 +430,6 @@ def success():
     """)
     conn.commit()
     conn.close()
-
-
-
 
 @app.route("/success")
 def success():
@@ -459,7 +452,6 @@ def success():
         <a href="/invoices">View invoices</a>
     </div>
     """ + FOOTER
-
 
 # ---------- RUN ----------
 from flask import abort
@@ -489,7 +481,6 @@ def stripe_webhook():
         conn.close()
 
     return "", 200
-
 
 
 # ---------- RUN ----------
