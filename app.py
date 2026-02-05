@@ -1,4 +1,3 @@
-print("BASE_URL =", BASE_URL)
 import os
 import sqlite3
 from pathlib import Path
@@ -8,6 +7,15 @@ from flask import Flask, request, send_file, redirect
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 import stripe
+
+
+# ---------- BASE URL ----------
+BASE_URL = os.environ.get("BASE_URL", "").strip()
+
+print("BASE_URL =", BASE_URL)
+
+if not BASE_URL:
+    raise RuntimeError("BASE_URL missing")
 
 # ---------- ENV ----------
 try:
