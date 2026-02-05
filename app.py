@@ -1,47 +1,47 @@
-import os
-from pathlib import Path
+importos
+frompathlibimportPath
 
-print("RUNNING FROM:", os.getcwd())
+print("RUNNINGFROM:",os.getcwd())
 
-# Load .env locally (Render ignores this safely)
+#Load.envlocally(Renderignoresthissafely)
 try:
-    from dotenv import load_dotenv
-    env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=env_path)
-except Exception:
-    pass
+fromdotenvimportload_dotenv
+env_path=Path(__file__).resolve().parent/".env"
+load_dotenv(dotenv_path=env_path)
+exceptException:
+pass
 
 
-from flask import Flask, request, send_file, redirect
-import sqlite3
-from reportlab.lib.pagesizes import LETTER
-from reportlab.pdfgen import canvas
-import stripe
+fromflaskimportFlask,request,send_file,redirect
+importsqlite3
+fromreportlab.lib.pagesizesimportLETTER
+fromreportlab.pdfgenimportcanvas
+importstripe
 
 
 
 #----------APP----------
 app=Flask(__name__)
 
-# ---------- ENV / STRIPE ----------
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "").strip()
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
-BASE_URL = os.environ.get("BASE_URL", "").strip()
+#----------ENV/STRIPE----------
+STRIPE_SECRET_KEY=os.environ.get("STRIPE_SECRET_KEY","").strip()
+STRIPE_PRICE_ID=os.environ.get("STRIPE_PRICE_ID","").strip()
+STRIPE_WEBHOOK_SECRET=os.environ.get("STRIPE_WEBHOOK_SECRET","").strip()
+BASE_URL=os.environ.get("BASE_URL","").strip()
 
-if not STRIPE_SECRET_KEY:
-    raise RuntimeError("STRIPE_SECRET_KEY missing")
+ifnotSTRIPE_SECRET_KEY:
+raiseRuntimeError("STRIPE_SECRET_KEYmissing")
 
-if not STRIPE_PRICE_ID:
-    raise RuntimeError("STRIPE_PRICE_ID missing")
+ifnotSTRIPE_PRICE_ID:
+raiseRuntimeError("STRIPE_PRICE_IDmissing")
 
-if not STRIPE_WEBHOOK_SECRET:
-    raise RuntimeError("STRIPE_WEBHOOK_SECRET missing")
+ifnotSTRIPE_WEBHOOK_SECRET:
+raiseRuntimeError("STRIPE_WEBHOOK_SECRETmissing")
 
-if not BASE_URL:
-    raise RuntimeError("BASE_URL missing")
+ifnotBASE_URL:
+raiseRuntimeError("BASE_URLmissing")
 
-stripe.api_key = STRIPE_SECRET_KEY
+stripe.api_key=STRIPE_SECRET_KEY
 
 
 
@@ -56,33 +56,33 @@ stripe.api_key = STRIPE_SECRET_KEY
 #----------DATABASE----------
 
 
-def init_db():
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
+definit_db():
+conn=sqlite3.connect(DATABASE)
+c=conn.cursor()
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client TEXT,
-            item TEXT,
-            amount REAL
-        )
-    """)
+c.execute("""
+CREATETABLEIFNOTEXISTSinvoices(
+idINTEGERPRIMARYKEYAUTOINCREMENT,
+clientTEXT,
+itemTEXT,
+amountREAL
+)
+""")
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
+c.execute("""
+CREATETABLEIFNOTEXISTSsettings(
+keyTEXTPRIMARYKEY,
+valueTEXT
+)
+""")
 
-    c.execute("""
-        INSERT OR IGNORE INTO settings (key, value)
-        VALUES ('is_paid', '0')
-    """)
+c.execute("""
+INSERTORIGNOREINTOsettings(key,value)
+VALUES('is_paid','0')
+""")
 
-    conn.commit()
-    conn.close()
+conn.commit()
+conn.close()
 
 init_db()
 
