@@ -29,6 +29,12 @@ print("RUNNING FROM:", os.getcwd())
 # ---------- APP ----------
 app = Flask(__name__)
 
+@app.route("/_routes")
+def _routes():
+    return "<br>".join(sorted(
+        rule.rule for rule in app.url_map.iter_rules()
+    ))
+
 # ---------- CONFIG ----------
 DATABASE = "invoices.db"
 FREE_INVOICE_LIMIT = 3
