@@ -1,3 +1,4 @@
+print("BASE_URL =", BASE_URL)
 import os
 import sqlite3
 from pathlib import Path
