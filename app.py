@@ -212,7 +212,6 @@ def upgrade():
         <pre>{str(e)}</pre>
         """, 500
 
-https://github.com/mikecalderon742-cell/invoice-app
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
