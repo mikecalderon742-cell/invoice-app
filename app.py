@@ -398,8 +398,6 @@ def pdf(invoice_id):
 
 
 
-
-
 # ---------- STRIPE ROUTES ----------
 @app.route("/upgrade")
 def upgrade():
@@ -422,6 +420,21 @@ def upgrade():
         <h2>Stripe Error</h2>
         <pre>{str(e)}</pre>
         """, 500
+
+
+
+@app.route("/success")
+def success():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("""
+        UPDATE settings
+        SET value = '1'
+        WHERE key = 'is_paid'
+    """)
+    conn.commit()
+    conn.close()
+
 
 
 
