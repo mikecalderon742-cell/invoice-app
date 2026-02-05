@@ -1,22 +1,23 @@
-#trackingtest
-importos
-frompathlibimportPath
+import os
+from pathlib import Path
 
-print("RUNNINGFROM:",os.getcwd())
+print("RUNNING FROM:", os.getcwd())
 
-#Load.envexplicitly(safelocally,ignoredonRender)
+# Load .env locally (Render ignores this safely)
 try:
-fromdotenvimportload_dotenv
-env_path=Path(__file__).resolve().parent/".env"
-load_dotenv(dotenv_path=env_path)
-exceptException:
-pass
+    from dotenv import load_dotenv
+    env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=env_path)
+except Exception:
+    pass
 
-fromflaskimportFlask,request,send_file,redirect
-importsqlite3
-fromreportlab.lib.pagesizesimportLETTER
-fromreportlab.pdfgenimportcanvas
-importstripe
+
+from flask import Flask, request, send_file, redirect
+import sqlite3
+from reportlab.lib.pagesizes import LETTER
+from reportlab.pdfgen import canvas
+import stripe
+
 
 
 #----------APP----------
