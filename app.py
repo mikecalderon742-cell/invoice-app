@@ -96,7 +96,13 @@ def format_invoice_number(invoice_id):
 def home():
     count = invoice_count()
     paid = is_paid()
-    status = "Pro (Unlimited)" if paid else f"Free ({FREE_INVOICE_LIMIT - count} left)"
+
+    remaining = "Unlimited" if paid else max(0, FREE_INVOICE_LIMIT - count)
+    status = "Pro (Unlimited)" if paid else f"Free ({remaining} left)"
+
+    upgrade_link = ""
+    if not paid:
+        upgrade_link = "<p><a href='/upgrade'>Upgrade to Pro</a></p>"
 
     return f"""
     <h2>Create Invoice</h2>
@@ -108,6 +114,8 @@ def home():
         Amount <input name="amount" required><br>
         <button>Create</button>
     </form>
+
+    {upgrade_link}
 
     <a href="/invoices">View invoices</a>
     """
@@ -123,11 +131,10 @@ def create():
         "INSERT INTO invoices (client, item, amount) VALUES (?, ?, ?)",
         (request.form["client"], request.form["item"], request.form["amount"])
     )
-    invoice_id = c.lastrowid
     conn.commit()
     conn.close()
 
-    return redirect(f"/pdf/{invoice_id}")
+    return redirect("/")
 
 @app.route("/invoices")
 def invoices():
@@ -144,9 +151,16 @@ def invoices():
 
 @app.route("/pdf/<int:invoice_id>")
 def pdf(invoice_id):
+    # Block free users who exceed limit
+    if not is_paid() and invoice_count() > FREE_INVOICE_LIMIT:
+        return redirect("/upgrade")
+
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    c.execute("SELECT client, item, amount FROM invoices WHERE id=?", (invoice_id,))
+    c.execute(
+        "SELECT client, item, amount FROM invoices WHERE id=?",
+        (invoice_id,)
+    )
     invoice = c.fetchone()
     conn.close()
 
@@ -155,10 +169,13 @@ def pdf(invoice_id):
 
     path = f"invoice_{invoice_id}.pdf"
     pdf = canvas.Canvas(path, pagesize=LETTER)
+    pdf.setFont("Helvetica", 12)
+
     pdf.drawString(100, 750, f"Invoice {format_invoice_number(invoice_id)}")
     pdf.drawString(100, 720, f"Client: {invoice[0]}")
     pdf.drawString(100, 700, f"Item: {invoice[1]}")
     pdf.drawString(100, 680, f"Amount: ${invoice[2]}")
+
     pdf.save()
 
     return send_file(path, as_attachment=True)
