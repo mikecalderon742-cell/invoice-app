@@ -10,12 +10,10 @@ import stripe
 
 
 # ---------- BASE URL ----------
-BASE_URL = os.environ.get("BASE_URL", "").strip()
-
-print("BASE_URL =", BASE_URL)
-
-if not BASE_URL:
-    raise RuntimeError("BASE_URL missing")
+BASE_URL = os.environ.get(
+    "BASE_URL",
+    "https://invoice-generator-pro.onrender.com"
+).rstrip("/")
 
 # ---------- ENV ----------
 try:
@@ -197,18 +195,24 @@ def pdf(invoice_id):
 
 @app.route("/upgrade")
 def upgrade():
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        line_items=[{
-            "price": STRIPE_PRICE_ID,
-            "quantity": 1
-        }],
-        success_url=f"{BASE_URL}/success",
-        cancel_url=f"{BASE_URL}/"
-    )
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{
+                "price": STRIPE_PRICE_ID,
+                "quantity": 1
+            }],
+            success_url=BASE_URL + "/success",
+            cancel_url=BASE_URL + "/"
+        )
 
-    # Redirect user to Stripe Checkout
-    return redirect(session.url, code=303)
+        return redirect(session.url, code=303)
+
+    except Exception as e:
+        return f"""
+        <h2>Stripe Error</h2>
+        <pre>{e}</pre>
+        """, 500
 
 
 @app.route("/success")
