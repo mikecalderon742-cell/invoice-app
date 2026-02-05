@@ -57,32 +57,33 @@ stripe.api_key = STRIPE_SECRET_KEY
 
 
 def init_db():
-conn=sqlite3.connect(DATABASE)
-c=conn.cursor()
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
 
-c.execute("""
-CREATETABLEIFNOTEXISTSinvoices(
-idINTEGERPRIMARYKEYAUTOINCREMENT,
-clientTEXT,
-itemTEXT,
-amountREAL
-)
-""")
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client TEXT,
+            item TEXT,
+            amount REAL
+        )
+    """)
 
-c.execute("""
-CREATETABLEIFNOTEXISTSsettings(
-keyTEXTPRIMARYKEY,
-valueTEXT
-)
-""")
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
 
-c.execute("""
-INSERTORIGNOREINTOsettings(key,value)
-VALUES('is_paid','0')
-""")
+    c.execute("""
+        INSERT OR IGNORE INTO settings (key, value)
+        VALUES ('is_paid', '0')
+    """)
 
-conn.commit()
-conn.close()
+    conn.commit()
+    conn.close()
+
 init_db()
 
 
