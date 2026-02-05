@@ -56,7 +56,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 #----------DATABASE----------
 
 
-definit_db():
+def init_db():
 conn=sqlite3.connect(DATABASE)
 c=conn.cursor()
 
