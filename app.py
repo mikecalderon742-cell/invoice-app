@@ -20,6 +20,10 @@ print("RUNNING FROM:", os.getcwd())
 # ---------- APP ----------
 app = Flask(__name__)
 
+@app.route("/debug-routes")
+def debug_routes():
+    return "<br>".join(sorted(str(r) for r in app.url_map.iter_rules()))
+
 # ---------- CONFIG ----------
 DATABASE = "invoices.db"
 FREE_INVOICE_LIMIT = 3
