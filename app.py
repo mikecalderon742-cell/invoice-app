@@ -23,30 +23,26 @@ import stripe
 #----------APP----------
 app=Flask(__name__)
 
-#----------ENV/STRIPE----------
-STRIPE_SECRET_KEY=os.environ.get("STRIPE_SECRET_KEY","").strip()
-STRIPE_PRICE_ID=os.environ.get("STRIPE_PRICE_ID","").strip()
-STRIPE_WEBHOOK_SECRET=os.environ.get("STRIPE_WEBHOOK_SECRET","").strip()
-BASE_URL=os.environ.get("BASE_URL","").strip()
+# ---------- ENV / STRIPE ----------
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+BASE_URL = os.environ.get("BASE_URL", "").strip()
 
-ifnotSTRIPE_SECRET_KEY:
-raiseRuntimeError("STRIPE_SECRET_KEYmissing")
+if not STRIPE_SECRET_KEY:
+    raise RuntimeError("STRIPE_SECRET_KEY missing")
 
-ifnotSTRIPE_PRICE_ID:
-raiseRuntimeError("STRIPE_PRICE_IDmissing")
+if not STRIPE_PRICE_ID:
+    raise RuntimeError("STRIPE_PRICE_ID missing")
 
-ifnotSTRIPE_WEBHOOK_SECRET:
-raiseRuntimeError("STRIPE_WEBHOOK_SECRETmissing")
+if not STRIPE_WEBHOOK_SECRET:
+    raise RuntimeError("STRIPE_WEBHOOK_SECRET missing")
 
-ifnotBASE_URL:
-raiseRuntimeError("BASE_URLmissing")
+if not BASE_URL:
+    raise RuntimeError("BASE_URL missing")
 
-stripe.api_key=STRIPE_SECRET_KEY
+stripe.api_key = STRIPE_SECRET_KEY
 
-
-#----------APPCONFIG----------
-DATABASE="invoices.db"
-FREE_INVOICE_LIMIT=3
 
 
 
