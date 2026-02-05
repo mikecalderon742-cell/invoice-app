@@ -207,11 +207,12 @@ def upgrade():
 def success():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
+
     c.execute("""
-        UPDATE settings
-        SET value='1'
-        WHERE key='is_paid'
+        INSERT OR REPLACE INTO settings (key, value)
+        VALUES ('is_paid', '1')
     """)
+
     conn.commit()
     conn.close()
 
