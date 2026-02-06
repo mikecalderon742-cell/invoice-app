@@ -9,11 +9,13 @@ from reportlab.pdfgen import canvas
 app = Flask(__name__)
 
 DATABASE = "invoices.db"
+FREE_INVOICE_LIMIT = 3
 
 # ---------- DATABASE ----------
 def init_db():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,32 +24,78 @@ def init_db():
             amount REAL
         )
     """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+
+    c.execute("""
+        INSERT OR IGNORE INTO settings (key, value)
+        VALUES ('is_paid', '0')
+    """)
+
     conn.commit()
     conn.close()
 
 init_db()
 
 # ---------- HELPERS ----------
+def is_paid():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key='is_paid'")
+    row = c.fetchone()
+    conn.close()
+    return row and row[0] == "1"
+
+def invoice_count():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM invoices")
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
 def format_invoice_number(invoice_id):
     return f"{datetime.now().year}-INV-{str(invoice_id).zfill(4)}"
 
 # ---------- ROUTES ----------
 @app.route("/")
 def home():
-    return """
+    count = invoice_count()
+    paid = is_paid()
+
+    remaining = "Unlimited" if paid else max(0, FREE_INVOICE_LIMIT - count)
+    status = "Pro (Unlimited)" if paid else f"Free ({remaining} left)"
+
+    upgrade_link = ""
+    if not paid:
+        upgrade_link = "<p><a href='/upgrade'>Upgrade to Pro</a></p>"
+
+    return f"""
     <h2>Create Invoice</h2>
+    <p>Status: {status}</p>
+
     <form method="post" action="/create">
         Client <input name="client" required><br>
         Item <input name="item" required><br>
         Amount <input name="amount" required><br>
         <button>Create</button>
     </form>
-    <br>
+
+    {upgrade_link}
+
     <a href="/invoices">View invoices</a>
     """
 
 @app.route("/create", methods=["POST"])
 def create():
+    if not is_paid() and invoice_count() >= FREE_INVOICE_LIMIT:
+        return redirect("/upgrade")
+
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
     c.execute(
@@ -56,6 +104,7 @@ def create():
     )
     conn.commit()
     conn.close()
+
     return redirect("/")
 
 @app.route("/invoices")
@@ -74,6 +123,9 @@ def invoices():
 
 @app.route("/pdf/<int:invoice_id>")
 def pdf(invoice_id):
+    if not is_paid() and invoice_count() > FREE_INVOICE_LIMIT:
+        return redirect("/upgrade")
+
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
     c.execute("SELECT client, item, amount FROM invoices WHERE id=?", (invoice_id,))
@@ -93,13 +145,18 @@ def pdf(invoice_id):
 
     return send_file(path, as_attachment=True)
 
+@app.route("/upgrade")
+def upgrade():
+    return """
+    <h2>Upgrade Required</h2>
+    <p>You’ve reached the free invoice limit.</p>
+    <p>Stripe coming next.</p>
+    <a href="/">Back</a>
+    """
+
 @app.route("/success")
 def success():
     return "<h1>SUCCESS PAGE ✅</h1><a href='/'>Home</a>"
-
-@app.route("/upgrade")
-def upgrade():
-    return "<h1>Upgrade placeholder</h1><a href='/'>Home</a>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
