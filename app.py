@@ -1,3 +1,4 @@
+raise RuntimeError("APP.PY IS DEFINITELY RUNNING")
 from flask import Flask
 
 app = Flask(__name__)
