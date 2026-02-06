@@ -1,5 +1,7 @@
 import sqlite3
-from flask import Flask, request, redirect
+from flask import Flask, request, redirect, send_file
+from reportlab.lib.pagesizes import LETTER
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
 
@@ -27,7 +29,7 @@ init_db()
 def home():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    c.execute("SELECT client, item, amount FROM invoices")
+    c.execute("SELECT id, client, item, amount FROM invoices")
     invoices = c.fetchall()
     conn.close()
 
@@ -44,7 +46,12 @@ def home():
     """
 
     for i in invoices:
-        html += f"<p>{i[0]} — {i[1]} — ${i[2]}</p>"
+        html += f"""
+        <p>
+            {i[1]} — {i[2]} — ${i[3]}
+            <a href="/pdf/{i[0]}">PDF</a>
+        </p>
+        """
 
     return html
 
@@ -60,6 +67,34 @@ def create():
     conn.close()
 
     return redirect("/")
+
+@app.route("/pdf/<int:invoice_id>")
+def pdf(invoice_id):
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute(
+        "SELECT client, item, amount FROM invoices WHERE id=?",
+        (invoice_id,)
+    )
+    invoice = c.fetchone()
+    conn.close()
+
+    if not invoice:
+        return "Invoice not found", 404
+
+    file_path = f"invoice_{invoice_id}.pdf"
+
+    pdf = canvas.Canvas(file_path, pagesize=LETTER)
+    pdf.setFont("Helvetica", 12)
+
+    pdf.drawString(100, 750, "Invoice")
+    pdf.drawString(100, 720, f"Client: {invoice[0]}")
+    pdf.drawString(100, 700, f"Item: {invoice[1]}")
+    pdf.drawString(100, 680, f"Amount: ${invoice[2]}")
+
+    pdf.save()
+
+    return send_file(file_path, as_attachment=True)
 
 @app.route("/health")
 def health():
