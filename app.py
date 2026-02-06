@@ -6,11 +6,13 @@ from reportlab.pdfgen import canvas
 app = Flask(__name__)
 
 DATABASE = "invoices.db"
+FREE_LIMIT = 3
 
 # ---------- DB INIT ----------
 def init_db():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,31 +21,71 @@ def init_db():
             amount TEXT
         )
     """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+
+    c.execute("""
+        INSERT OR IGNORE INTO settings (key, value)
+        VALUES ('is_paid', '0')
+    """)
+
     conn.commit()
     conn.close()
 
 init_db()
 
+# ---------- HELPERS ----------
+def is_paid():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key='is_paid'")
+    row = c.fetchone()
+    conn.close()
+    return row and row[0] == "1"
+
+def invoice_count():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM invoices")
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
 # ---------- ROUTES ----------
 @app.route("/")
 def home():
+    count = invoice_count()
+    paid = is_paid()
+
+    remaining = "Unlimited" if paid else max(0, FREE_LIMIT - count)
+    status = "Pro" if paid else f"Free ({remaining} left)"
+
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
     c.execute("SELECT id, client, item, amount FROM invoices")
     invoices = c.fetchall()
     conn.close()
 
-    html = "<h2>Invoice App</h2>"
+    html = f"<h2>Invoice App</h2><p>Status: {status}</p>"
 
-    html += """
-    <form method="post" action="/create">
-        Client <input name="client" required><br>
-        Item <input name="item" required><br>
-        Amount <input name="amount" required><br>
-        <button>Create Invoice</button>
-    </form>
-    <hr>
-    """
+    if not paid and count >= FREE_LIMIT:
+        html += "<p><b>Upgrade required to create more invoices</b></p>"
+    else:
+        html += """
+        <form method="post" action="/create">
+            Client <input name="client" required><br>
+            Item <input name="item" required><br>
+            Amount <input name="amount" required><br>
+            <button>Create Invoice</button>
+        </form>
+        """
+
+    html += "<hr>"
 
     for i in invoices:
         html += f"""
@@ -57,6 +99,9 @@ def home():
 
 @app.route("/create", methods=["POST"])
 def create():
+    if not is_paid() and invoice_count() >= FREE_LIMIT:
+        return redirect("/")
+
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
     c.execute(
@@ -80,11 +125,10 @@ def pdf(invoice_id):
     conn.close()
 
     if not invoice:
-        return "Invoice not found", 404
+        return "Not found", 404
 
-    file_path = f"invoice_{invoice_id}.pdf"
-
-    pdf = canvas.Canvas(file_path, pagesize=LETTER)
+    path = f"invoice_{invoice_id}.pdf"
+    pdf = canvas.Canvas(path, pagesize=LETTER)
     pdf.setFont("Helvetica", 12)
 
     pdf.drawString(100, 750, "Invoice")
@@ -94,7 +138,7 @@ def pdf(invoice_id):
 
     pdf.save()
 
-    return send_file(file_path, as_attachment=True)
+    return send_file(path, as_attachment=True)
 
 @app.route("/health")
 def health():
