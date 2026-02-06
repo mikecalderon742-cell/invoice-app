@@ -74,7 +74,13 @@ def home():
     html = f"<h2>Invoice App</h2><p>Status: {status}</p>"
 
     if not paid and count >= FREE_LIMIT:
-        html += "<p><b>Upgrade required to create more invoices</b></p>"
+    html += """
+    <p><b>Upgrade required to create more invoices</b></p>
+    <form method="post" action="/upgrade">
+        <button>Upgrade to Pro</button>
+    </form>
+    """
+
     else:
         html += """
         <form method="post" action="/create">
@@ -139,6 +145,17 @@ def pdf(invoice_id):
     pdf.save()
 
     return send_file(path, as_attachment=True)
+
+@app.route("/upgrade", methods=["POST"])
+def upgrade():
+    conn = sqlite3.connect(DATABASE)
+    c = conn.cursor()
+    c.execute(
+        "UPDATE settings SET value='1' WHERE key='is_paid'"
+    )
+    conn.commit()
+    conn.close()
+    return redirect("/")
 
 @app.route("/health")
 def health():
