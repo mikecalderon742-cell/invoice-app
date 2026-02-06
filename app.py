@@ -4,7 +4,11 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "<h1>Home page ✅</h1><a href='/upgrade'>Upgrade</a>"
+    return """
+    <h1>Invoice App is Running ✅</h1>
+    <p>If you can see this, routing works.</p>
+    <a href="/upgrade">Upgrade</a>
+    """
 
 @app.route("/upgrade")
 def upgrade():
@@ -12,4 +16,3 @@ def upgrade():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-
