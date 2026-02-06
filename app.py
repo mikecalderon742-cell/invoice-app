@@ -1,4 +1,9 @@
 import os
+BASE_URL = os.environ.get("BASE_URL", "").strip()
+
+if not BASE_URL.startswith("https://"):
+    raise RuntimeError(f"Invalid BASE_URL: {BASE_URL}")
+
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -205,14 +210,10 @@ def upgrade():
             success_url=BASE_URL + "/success",
             cancel_url=BASE_URL + "/"
         )
-
         return redirect(session.url, code=303)
 
     except Exception as e:
-        return f"""
-        <h2>Stripe Error</h2>
-        <pre>{e}</pre>
-        """, 500
+        return f"<pre>{e}</pre>", 500
 
 
 @app.route("/success")
