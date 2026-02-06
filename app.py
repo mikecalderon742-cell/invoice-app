@@ -1,16 +1,31 @@
 import os
 import sqlite3
 from datetime import datetime
+
 from flask import Flask, request, redirect, send_file
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
+import stripe
 
 # ---------------- APP ----------------
 app = Flask(__name__)
 
 # ---------------- CONFIG ----------------
 DATABASE = "invoices.db"
-FREE_LIMIT = 3
+FREE_INVOICE_LIMIT = 3
+
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
+BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
+
+if not STRIPE_SECRET_KEY:
+    raise RuntimeError("STRIPE_SECRET_KEY missing")
+if not STRIPE_PRICE_ID:
+    raise RuntimeError("STRIPE_PRICE_ID missing")
+if not BASE_URL:
+    raise RuntimeError("BASE_URL missing")
+
+stripe.api_key = STRIPE_SECRET_KEY
 
 # ---------------- DATABASE ----------------
 def init_db():
@@ -60,7 +75,7 @@ def invoice_count():
     conn.close()
     return count
 
-def format_invoice_number(invoice_id):
+def invoice_number(invoice_id):
     return f"{datetime.now().year}-INV-{str(invoice_id).zfill(4)}"
 
 # ---------------- ROUTES ----------------
@@ -69,34 +84,32 @@ def home():
     count = invoice_count()
     paid = is_paid()
 
-    html = "<h2>Invoice App</h2>"
-    html += f"<p>Status: {'Pro' if paid else 'Free'}</p>"
-    html += f"<p>Invoices used: {count}</p>"
+    remaining = "Unlimited" if paid else max(0, FREE_INVOICE_LIMIT - count)
+    status = "Pro (Unlimited)" if paid else f"Free ({remaining} left)"
 
-    if not paid and count >= FREE_LIMIT:
-        html += """
-        <p><b>Upgrade required to create more invoices</b></p>
-        <form method="post" action="/upgrade">
-            <button>Upgrade to Pro</button>
-        </form>
-        """
-    else:
-        html += """
-        <form method="post" action="/create">
-            Client <input name="client" required><br>
-            Item <input name="item" required><br>
-            Amount <input name="amount" required><br>
-            <button>Create Invoice</button>
-        </form>
-        """
+    upgrade_link = ""
+    if not paid:
+        upgrade_link = "<p><a href='/upgrade'>Upgrade to Pro</a></p>"
 
-    html += "<p><a href='/invoices'>View invoices</a></p>"
-    return html
+    return f"""
+    <h2>Create Invoice</h2>
+    <p>Status: {status}</p>
+
+    <form method="post" action="/create">
+        Client <input name="client" required><br>
+        Item <input name="item" required><br>
+        Amount <input name="amount" required><br>
+        <button>Create</button>
+    </form>
+
+    {upgrade_link}
+    <p><a href="/invoices">View invoices</a></p>
+    """
 
 @app.route("/create", methods=["POST"])
 def create():
-    if not is_paid() and invoice_count() >= FREE_LIMIT:
-        return redirect("/")
+    if not is_paid() and invoice_count() >= FREE_INVOICE_LIMIT:
+        return redirect("/upgrade")
 
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
@@ -106,6 +119,7 @@ def create():
     )
     conn.commit()
     conn.close()
+
     return redirect("/")
 
 @app.route("/invoices")
@@ -118,25 +132,18 @@ def invoices():
 
     html = "<h2>Invoices</h2>"
     for r in rows:
-        html += f"""
-        <p>
-            {format_invoice_number(r[0])} —
-            {r[1]} —
-            ${r[3]}
-            <a href="/pdf/{r[0]}">PDF</a>
-        </p>
-        """
+        html += f"<p>{invoice_number(r[0])} — {r[1]} — ${r[3]} <a href='/pdf/{r[0]}'>PDF</a></p>"
     html += "<p><a href='/'>Back</a></p>"
     return html
 
 @app.route("/pdf/<int:invoice_id>")
 def pdf(invoice_id):
+    if not is_paid() and invoice_count() > FREE_INVOICE_LIMIT:
+        return redirect("/upgrade")
+
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    c.execute(
-        "SELECT client, item, amount FROM invoices WHERE id=?",
-        (invoice_id,)
-    )
+    c.execute("SELECT client, item, amount FROM invoices WHERE id=?", (invoice_id,))
     invoice = c.fetchone()
     conn.close()
 
@@ -147,7 +154,7 @@ def pdf(invoice_id):
     pdf = canvas.Canvas(filename, pagesize=LETTER)
     pdf.setFont("Helvetica", 12)
 
-    pdf.drawString(100, 750, f"Invoice {format_invoice_number(invoice_id)}")
+    pdf.drawString(100, 750, f"Invoice {invoice_number(invoice_id)}")
     pdf.drawString(100, 720, f"Client: {invoice[0]}")
     pdf.drawString(100, 700, f"Item: {invoice[1]}")
     pdf.drawString(100, 680, f"Amount: ${invoice[2]}")
@@ -155,20 +162,39 @@ def pdf(invoice_id):
     pdf.save()
     return send_file(filename, as_attachment=True)
 
-# ---------------- MANUAL UPGRADE ----------------
-@app.route("/upgrade", methods=["POST"])
+# ---------------- STRIPE ----------------
+@app.route("/upgrade")
 def upgrade():
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        payment_method_types=["card"],
+        line_items=[{
+            "price": STRIPE_PRICE_ID,
+            "quantity": 1
+        }],
+        success_url=f"{BASE_URL}/success",
+        cancel_url=f"{BASE_URL}/"
+    )
+
+    return redirect(session.url, code=303)
+
+@app.route("/success")
+def success():
     conn = sqlite3.connect(DATABASE)
     c = conn.cursor()
-    c.execute("UPDATE settings SET value='1' WHERE key='is_paid'")
+    c.execute("""
+        INSERT OR REPLACE INTO settings (key, value)
+        VALUES ('is_paid', '1')
+    """)
     conn.commit()
     conn.close()
-    return redirect("/")
 
-# ---------------- HEALTH ----------------
-@app.route("/health")
-def health():
-    return "APP IS RUNNING"
+    return """
+    <h2>Payment Successful 🎉</h2>
+    <p>You now have unlimited invoices.</p>
+    <p><a href="/">Go home</a></p>
+    """
 
+# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
