@@ -76,7 +76,7 @@ def set_setting(key, value):
     con.close()
 
 # ------------------------
-# Stripe Logic (Source of Truth)
+# Stripe / Payment Logic
 # ------------------------
 
 def is_paid():
@@ -221,8 +221,14 @@ def upgrade():
 def success():
     return "<h1>Payment successful 🎉</h1><a href='/'>Return home</a>"
 
+# ------------------------
+# 🔥 WEBHOOK (THIS IS THE FIX)
+# ------------------------
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    print(">>> WEBHOOK HIT <<<")
+
     payload = request.data
     sig = request.headers.get("Stripe-Signature")
 
@@ -233,12 +239,14 @@ def webhook():
             STRIPE_WEBHOOK_SECRET
         )
     except Exception as e:
-        print("Webhook error:", e)
+        print("Webhook verification failed:", e)
         return "Invalid", 400
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         customer_id = session.get("customer")
+        print(">>> CHECKOUT COMPLETED <<<", customer_id)
+
         if customer_id:
             set_setting("stripe_customer_id", customer_id)
 
