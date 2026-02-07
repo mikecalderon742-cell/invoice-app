@@ -1,3 +1,4 @@
+raise RuntimeError("THIS IS THE APP.PY FILE")
 print(">>> APP.PY LOADED <<<")
 
 import os
