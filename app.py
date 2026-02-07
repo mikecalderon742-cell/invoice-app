@@ -3,13 +3,13 @@ print(">>> APP.PY LOADED <<<")
 import os
 import sqlite3
 import stripe
-from flask import Flask, request, redirect, url_for, send_file, abort
+from flask import Flask, request, redirect, send_file, abort
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 from datetime import datetime
 
 # ------------------------
-# App + Config
+# App Config
 # ------------------------
 
 app = Flask(__name__)
@@ -18,25 +18,27 @@ BASE_URL = os.environ.get("BASE_URL", "http://localhost:10000")
 print("BASE_URL =", BASE_URL)
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
 DB_PATH = "invoices.db"
-
 FREE_INVOICE_LIMIT = 3
 
 # ------------------------
-# Database Helpers
+# Database
 # ------------------------
 
-def get_db():
+def db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def init_db():
-    db = get_db()
-    cur = db.cursor()
+    con = db()
+    cur = con.cursor()
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item TEXT,
             client TEXT,
             amount REAL,
             created_at TEXT
@@ -50,34 +52,34 @@ def init_db():
         )
     """)
 
-    db.commit()
-    db.close()
+    con.commit()
+    con.close()
 
 init_db()
 
 def get_setting(key):
-    db = get_db()
-    cur = db.cursor()
+    con = db()
+    cur = con.cursor()
     cur.execute("SELECT value FROM settings WHERE key=?", (key,))
     row = cur.fetchone()
-    db.close()
+    con.close()
     return row[0] if row else None
 
 def set_setting(key, value):
-    db = get_db()
-    cur = db.cursor()
+    con = db()
+    cur = con.cursor()
     cur.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (key, value),
+        (key, value)
     )
-    db.commit()
-    db.close()
+    con.commit()
+    con.close()
 
 # ------------------------
-# Stripe Logic (SOURCE OF TRUTH)
+# Stripe Logic (Source of Truth)
 # ------------------------
 
-def stripe_subscription_active():
+def is_paid():
     customer_id = get_setting("stripe_customer_id")
     if not customer_id:
         return False
@@ -86,28 +88,23 @@ def stripe_subscription_active():
         subs = stripe.Subscription.list(customer=customer_id, status="active")
         return len(subs.data) > 0
     except Exception as e:
-        print("Stripe check failed:", e)
+        print("Stripe error:", e)
         return False
-
-def is_paid():
-    return stripe_subscription_active()
 
 # ------------------------
 # Invoice Logic
 # ------------------------
 
 def invoice_count():
-    db = get_db()
-    cur = db.cursor()
+    con = db()
+    cur = con.cursor()
     cur.execute("SELECT COUNT(*) FROM invoices")
     count = cur.fetchone()[0]
-    db.close()
+    con.close()
     return count
 
 def can_create_invoice():
-    if is_paid():
-        return True
-    return invoice_count() < FREE_INVOICE_LIMIT
+    return is_paid() or invoice_count() < FREE_INVOICE_LIMIT
 
 # ------------------------
 # Routes
@@ -119,69 +116,89 @@ def health():
 
 @app.route("/")
 def home():
-    count = invoice_count()
     paid = is_paid()
+    count = invoice_count()
 
-    html = "<h1>Invoice App is LIVE ✅</h1>"
-    html += f"<p>Invoices created: {count}</p>"
+    con = db()
+    cur = con.cursor()
+    cur.execute("SELECT id, item, client, amount FROM invoices ORDER BY id DESC")
+    invoices = cur.fetchall()
+    con.close()
+
+    html = "<h1>Invoice App</h1>"
 
     if not paid:
-        html += f"<p>Free limit: {FREE_INVOICE_LIMIT}</p>"
+        html += f"<p>Free invoices remaining: {FREE_INVOICE_LIMIT - count}</p>"
         html += "<a href='/upgrade'>Upgrade</a><br><br>"
     else:
-        html += "<p><strong>Premium unlocked ✅</strong></p><br>"
+        html += "<p><strong>Premium account ✅</strong></p>"
 
     html += """
+        <h3>Create Invoice</h3>
         <form method="POST" action="/create">
-            Client Name: <input name="client"><br>
-            Amount: <input name="amount" type="number" step="0.01"><br>
+            Item: <input name="item" required><br>
+            Client: <input name="client" required><br>
+            Amount: <input name="amount" type="number" step="0.01" required><br>
             <button type="submit">Create Invoice</button>
         </form>
+        <hr>
+        <h3>Invoices</h3>
     """
+
+    for i in invoices:
+        html += f"""
+            <p>
+                #{i[0]} — {i[1]} — {i[2]} — ${i[3]}
+                <a href="/pdf/{i[0]}">Download PDF</a>
+            </p>
+        """
 
     return html
 
 @app.route("/create", methods=["POST"])
-def create_invoice():
+def create():
     if not can_create_invoice():
         return redirect("/upgrade")
 
+    item = request.form["item"]
     client = request.form["client"]
     amount = request.form["amount"]
-    created_at = datetime.utcnow().isoformat()
 
-    db = get_db()
-    cur = db.cursor()
+    con = db()
+    cur = con.cursor()
     cur.execute(
-        "INSERT INTO invoices (client, amount, created_at) VALUES (?, ?, ?)",
-        (client, amount, created_at),
+        "INSERT INTO invoices (item, client, amount, created_at) VALUES (?, ?, ?, ?)",
+        (item, client, amount, datetime.utcnow().isoformat())
     )
-    invoice_id = cur.lastrowid
-    db.commit()
-    db.close()
+    con.commit()
+    con.close()
 
-    return redirect(f"/pdf/{invoice_id}")
+    return redirect("/")
 
 @app.route("/pdf/<int:invoice_id>")
 def pdf(invoice_id):
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("SELECT client, amount, created_at FROM invoices WHERE id=?", (invoice_id,))
+    con = db()
+    cur = con.cursor()
+    cur.execute(
+        "SELECT item, client, amount, created_at FROM invoices WHERE id=?",
+        (invoice_id,)
+    )
     row = cur.fetchone()
-    db.close()
+    con.close()
 
     if not row:
         abort(404)
 
-    client, amount, created_at = row
+    item, client, amount, created_at = row
 
     filename = f"invoice_{invoice_id}.pdf"
     c = canvas.Canvas(filename, pagesize=LETTER)
 
     c.drawString(100, 750, "Invoice")
-    c.drawString(100, 720, f"Client: {client}")
-    c.drawString(100, 700, f"Amount: ${amount}")
-    c.drawString(100, 680, f"Date: {created_at}")
+    c.drawString(100, 720, f"Item: {item}")
+    c.drawString(100, 700, f"Client: {client}")
+    c.drawString(100, 680, f"Amount: ${amount}")
+    c.drawString(100, 660, f"Date: {created_at}")
 
     c.save()
 
@@ -191,9 +208,8 @@ def pdf(invoice_id):
 def upgrade():
     session = stripe.checkout.Session.create(
         mode="subscription",
-        payment_method_types=["card"],
         line_items=[{
-            "price": os.environ.get("STRIPE_PRICE_ID"),
+            "price": STRIPE_PRICE_ID,
             "quantity": 1
         }],
         success_url=BASE_URL + "/success",
@@ -203,11 +219,7 @@ def upgrade():
 
 @app.route("/success")
 def success():
-    return "<h1>Payment successful 🎉</h1><a href='/'>Return Home</a>"
-
-# ------------------------
-# Stripe Webhook
-# ------------------------
+    return "<h1>Payment successful 🎉</h1><a href='/'>Return home</a>"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -218,7 +230,7 @@ def webhook():
         event = stripe.Webhook.construct_event(
             payload,
             sig,
-            os.environ.get("STRIPE_WEBHOOK_SECRET")
+            STRIPE_WEBHOOK_SECRET
         )
     except Exception as e:
         print("Webhook error:", e)
