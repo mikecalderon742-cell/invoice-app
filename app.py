@@ -1,145 +1,129 @@
 import os
 import sqlite3
 from datetime import datetime
-from pathlib import Path
-
-from flask import Flask, request, send_file
-
-# =============================
-# APP SETUP
-# =============================
+from flask import Flask, request, redirect, send_file
+from reportlab.lib.pagesizes import LETTER
+from reportlab.pdfgen import canvas
+import stripe
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 print(">>> APP.PY LOADED <<<")
 
+# -------------------------------------------------
+# App + Config
+# -------------------------------------------------
+
 app = Flask(__name__)
 
-BASE_DIR = Path(__file__).parent
-DATABASE = BASE_DIR / "invoices.db"
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:10000")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-FREE_LIMIT = 3
+print("BASE_URL =", BASE_URL)
+print("USING POSTGRES =", bool(DATABASE_URL))
 
-# =============================
-# DATABASE HELPERS
-# =============================
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
+# -------------------------------------------------
+# Database helpers
+# -------------------------------------------------
 
 def get_db():
-    return sqlite3.connect(DATABASE)
+    if DATABASE_URL:
+        return psycopg2.connect(DATABASE_URL, sslmode="require")
+    return sqlite3.connect("invoices.db")
 
 def init_db():
     conn = get_db()
-    c = conn.cursor()
+    cur = conn.cursor()
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer TEXT,
-            amount REAL,
-            created_at TEXT
-        )
-    """)
+    if DATABASE_URL:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-
-    c.execute("""
-        INSERT OR IGNORE INTO settings (key, value)
+    cur.execute("""
+        INSERT INTO settings (key, value)
         VALUES ('is_paid', '0')
+        ON CONFLICT (key) DO NOTHING
     """)
 
     conn.commit()
     conn.close()
 
+init_db()
+
 def is_paid():
     conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT value FROM settings WHERE key='is_paid'")
-    row = c.fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM settings WHERE key='is_paid'")
+    row = cur.fetchone()
     conn.close()
     return row and row[0] == "1"
 
-def set_paid(value: bool):
+def set_paid():
     conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('is_paid', ?)",
-        ("1" if value else "0",)
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE settings SET value='1' WHERE key='is_paid'"
     )
     conn.commit()
     conn.close()
 
-def invoice_count():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM invoices")
-    count = c.fetchone()[0]
-    conn.close()
-    return count
-
-# =============================
-# ROUTES
-# =============================
+# -------------------------------------------------
+# Routes
+# -------------------------------------------------
 
 @app.route("/")
 def home():
     paid = is_paid()
-    count = invoice_count()
-
-    status = "🟢 PRO (Unlimited)" if paid else f"🔒 FREE ({count}/{FREE_LIMIT})"
-
     return f"""
     <h1>Invoice App</h1>
-    <p>Status: <b>{status}</b></p>
-
-    <form method="POST" action="/create">
-        <input name="customer" placeholder="Customer name" required>
-        <input name="amount" placeholder="Amount" required>
-        <button>Create Invoice</button>
-    </form>
-
-    <p><a href="/_test-pay">Simulate Payment</a></p>
+    <p>Status: {"PAID ✅" if paid else "FREE ❌"}</p>
+    <a href="/upgrade">Upgrade</a>
     """
 
-@app.route("/create", methods=["POST"])
-def create_invoice():
-    if not is_paid() and invoice_count() >= FREE_LIMIT:
-        return "<h2>Free limit reached ❌</h2>"
-
-    customer = request.form["customer"]
-    amount = request.form["amount"]
-
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO invoices (customer, amount, created_at) VALUES (?, ?, ?)",
-        (customer, amount, datetime.utcnow().isoformat())
+@app.route("/upgrade")
+def upgrade():
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        line_items=[{
+            "price": STRIPE_PRICE_ID,
+            "quantity": 1
+        }],
+        success_url=f"{BASE_URL}/success",
+        cancel_url=f"{BASE_URL}/"
     )
-    conn.commit()
-    conn.close()
+    return redirect(session.url)
 
-    return "<h2>Invoice created ✅</h2><a href='/'>Back</a>"
-
-@app.route("/_test-pay")
-def test_pay():
-    set_paid(True)
+@app.route("/success")
+def success():
+    set_paid()
     return """
-    <h2>Payment simulated ✅</h2>
-    <p>Restart or redeploy the app — payment should persist.</p>
-    <a href="/">Back</a>
+    <h2>Payment Successful 🎉</h2>
+    <p>Your account is now upgraded.</p>
+    <a href="/">Return Home</a>
     """
 
-@app.route("/_proof")
-def proof():
-    return "<h1>Routing works ✅</h1>"
+@app.route("/health")
+def health():
+    return "ok", 200
 
-# =============================
-# STARTUP
-# =============================
-
-init_db()
+# -------------------------------------------------
+# Run
+# -------------------------------------------------
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
