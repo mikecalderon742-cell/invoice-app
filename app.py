@@ -1,4 +1,3 @@
-raise RuntimeError("THIS IS THE APP.PY FILE")
 print(">>> APP.PY LOADED <<<")
 
 import os
@@ -9,9 +8,9 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 from datetime import datetime
 
-# ------------------------
-# App Config
-# ------------------------
+# ======================
+# App configuration
+# ======================
 
 app = Flask(__name__)
 
@@ -25,9 +24,9 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 DB_PATH = "invoices.db"
 FREE_INVOICE_LIMIT = 3
 
-# ------------------------
-# Database
-# ------------------------
+# ======================
+# Database helpers
+# ======================
 
 def db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -76,9 +75,9 @@ def set_setting(key, value):
     con.commit()
     con.close()
 
-# ------------------------
-# Stripe / Payment Logic
-# ------------------------
+# ======================
+# Stripe logic
+# ======================
 
 def is_paid():
     customer_id = get_setting("stripe_customer_id")
@@ -86,15 +85,19 @@ def is_paid():
         return False
 
     try:
-        subs = stripe.Subscription.list(customer=customer_id, status="active")
+        subs = stripe.Subscription.list(
+            customer=customer_id,
+            status="active",
+            limit=1
+        )
         return len(subs.data) > 0
     except Exception as e:
         print("Stripe error:", e)
         return False
 
-# ------------------------
-# Invoice Logic
-# ------------------------
+# ======================
+# Invoice logic
+# ======================
 
 def invoice_count():
     con = db()
@@ -107,9 +110,9 @@ def invoice_count():
 def can_create_invoice():
     return is_paid() or invoice_count() < FREE_INVOICE_LIMIT
 
-# ------------------------
+# ======================
 # Routes
-# ------------------------
+# ======================
 
 @app.route("/health")
 def health():
@@ -128,11 +131,12 @@ def home():
 
     html = "<h1>Invoice App</h1>"
 
-    if not paid:
-        html += f"<p>Free invoices remaining: {FREE_INVOICE_LIMIT - count}</p>"
-        html += "<a href='/upgrade'>Upgrade</a><br><br>"
-    else:
+    if paid:
         html += "<p><strong>Premium account ✅</strong></p>"
+    else:
+        remaining = FREE_INVOICE_LIMIT - count
+        html += f"<p>Free invoices remaining: {remaining}</p>"
+        html += "<a href='/upgrade'>Upgrade to Pro</a><br><br>"
 
     html += """
         <h3>Create Invoice</h3>
@@ -146,11 +150,11 @@ def home():
         <h3>Invoices</h3>
     """
 
-    for i in invoices:
+    for inv in invoices:
         html += f"""
             <p>
-                #{i[0]} — {i[1]} — {i[2]} — ${i[3]}
-                <a href="/pdf/{i[0]}">Download PDF</a>
+                #{inv[0]} — {inv[1]} — {inv[2]} — ${inv[3]}
+                <a href="/pdf/{inv[0]}">Download PDF</a>
             </p>
         """
 
@@ -202,8 +206,11 @@ def pdf(invoice_id):
     c.drawString(100, 660, f"Date: {created_at}")
 
     c.save()
-
     return send_file(filename, as_attachment=True)
+
+# ======================
+# Stripe checkout
+# ======================
 
 @app.route("/upgrade")
 def upgrade():
@@ -222,9 +229,9 @@ def upgrade():
 def success():
     return "<h1>Payment successful 🎉</h1><a href='/'>Return home</a>"
 
-# ------------------------
-# 🔥 WEBHOOK (THIS IS THE FIX)
-# ------------------------
+# ======================
+# Stripe webhook (CRITICAL)
+# ======================
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -240,8 +247,10 @@ def webhook():
             STRIPE_WEBHOOK_SECRET
         )
     except Exception as e:
-        print("Webhook verification failed:", e)
+        print("❌ WEBHOOK VERIFY FAILED:", e)
         return "Invalid", 400
+
+    print("EVENT TYPE:", event["type"])
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
@@ -253,9 +262,9 @@ def webhook():
 
     return "OK", 200
 
-# ------------------------
-# Local Run
-# ------------------------
+# ======================
+# Local run
+# ======================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
