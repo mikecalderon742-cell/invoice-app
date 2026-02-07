@@ -1,30 +1,27 @@
 import os
 import sqlite3
 from datetime import datetime
-from flask import Flask, request, redirect, send_file
-from reportlab.lib.pagesizes import LETTER
-from reportlab.pdfgen import canvas
+from pathlib import Path
+
+from flask import Flask, request, send_file
+
+# =============================
+# APP SETUP
+# =============================
 
 print(">>> APP.PY LOADED <<<")
 
-# --------------------
-# App setup
-# --------------------
 app = Flask(__name__)
 
-DATABASE = "invoices.db"
-FREE_INVOICE_LIMIT = 3
+BASE_DIR = Path(__file__).parent
+DATABASE = BASE_DIR / "invoices.db"
 
-# --------------------
-# Health check (RENDER)
-# --------------------
-@app.route("/health")
-def health():
-    return "OK", 200
+FREE_LIMIT = 3
 
-# --------------------
-# Database
-# --------------------
+# =============================
+# DATABASE HELPERS
+# =============================
+
 def get_db():
     return sqlite3.connect(DATABASE)
 
@@ -35,9 +32,9 @@ def init_db():
     c.execute("""
         CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client TEXT,
-            item TEXT,
-            amount REAL
+            customer TEXT,
+            amount REAL,
+            created_at TEXT
         )
     """)
 
@@ -56,11 +53,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-
-# --------------------
-# Helpers
-# --------------------
 def is_paid():
     conn = get_db()
     c = conn.cursor()
@@ -68,6 +60,16 @@ def is_paid():
     row = c.fetchone()
     conn.close()
     return row and row[0] == "1"
+
+def set_paid(value: bool):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('is_paid', ?)",
+        ("1" if value else "0",)
+    )
+    conn.commit()
+    conn.close()
 
 def invoice_count():
     conn = get_db()
@@ -77,102 +79,67 @@ def invoice_count():
     conn.close()
     return count
 
-def invoice_number(i):
-    return f"{datetime.now().year}-INV-{str(i).zfill(4)}"
+# =============================
+# ROUTES
+# =============================
 
-# --------------------
-# Routes
-# --------------------
 @app.route("/")
 def home():
     paid = is_paid()
     count = invoice_count()
 
-    status = "Pro (Unlimited)" if paid else f"Free ({FREE_INVOICE_LIMIT - count} left)"
-
-    upgrade_notice = ""
-    if not paid:
-        upgrade_notice = "<p><b>Upgrade coming soon</b></p>"
+    status = "🟢 PRO (Unlimited)" if paid else f"🔒 FREE ({count}/{FREE_LIMIT})"
 
     return f"""
     <h1>Invoice App</h1>
-    <p>Status: {status}</p>
+    <p>Status: <b>{status}</b></p>
 
-    <form method="post" action="/create">
-        Client: <input name="client" required><br>
-        Item: <input name="item" required><br>
-        Amount: <input name="amount" required><br>
+    <form method="POST" action="/create">
+        <input name="customer" placeholder="Customer name" required>
+        <input name="amount" placeholder="Amount" required>
         <button>Create Invoice</button>
     </form>
 
-    {upgrade_notice}
-
-    <p><a href="/invoices">View invoices</a></p>
+    <p><a href="/_test-pay">Simulate Payment</a></p>
     """
 
 @app.route("/create", methods=["POST"])
-def create():
-    if not is_paid() and invoice_count() >= FREE_INVOICE_LIMIT:
-        return "<h2>Free limit reached</h2><p>Upgrade required</p>"
+def create_invoice():
+    if not is_paid() and invoice_count() >= FREE_LIMIT:
+        return "<h2>Free limit reached ❌</h2>"
+
+    customer = request.form["customer"]
+    amount = request.form["amount"]
 
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO invoices (client, item, amount) VALUES (?, ?, ?)",
-        (request.form["client"], request.form["item"], request.form["amount"])
+        "INSERT INTO invoices (customer, amount, created_at) VALUES (?, ?, ?)",
+        (customer, amount, datetime.utcnow().isoformat())
     )
     conn.commit()
     conn.close()
 
-    return redirect("/")
+    return "<h2>Invoice created ✅</h2><a href='/'>Back</a>"
 
-@app.route("/invoices")
-def invoices():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT id, client, item, amount FROM invoices")
-    rows = c.fetchall()
-    conn.close()
+@app.route("/_test-pay")
+def test_pay():
+    set_paid(True)
+    return """
+    <h2>Payment simulated ✅</h2>
+    <p>Restart or redeploy the app — payment should persist.</p>
+    <a href="/">Back</a>
+    """
 
-    html = "<h2>Invoices</h2>"
-    for r in rows:
-        html += f"""
-        <p>
-            {invoice_number(r[0])} — {r[1]} — ${r[3]}
-            <a href="/pdf/{r[0]}">PDF</a>
-        </p>
-        """
-    html += '<p><a href="/">Back</a></p>'
-    return html
+@app.route("/_proof")
+def proof():
+    return "<h1>Routing works ✅</h1>"
 
-@app.route("/pdf/<int:invoice_id>")
-def pdf(invoice_id):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        "SELECT client, item, amount FROM invoices WHERE id=?",
-        (invoice_id,)
-    )
-    invoice = c.fetchone()
-    conn.close()
+# =============================
+# STARTUP
+# =============================
 
-    if not invoice:
-        return "Not found", 404
+init_db()
 
-    filename = f"invoice_{invoice_id}.pdf"
-    pdf = canvas.Canvas(filename, pagesize=LETTER)
-    pdf.setFont("Helvetica", 12)
-
-    pdf.drawString(100, 750, f"Invoice {invoice_number(invoice_id)}")
-    pdf.drawString(100, 720, f"Client: {invoice[0]}")
-    pdf.drawString(100, 700, f"Item: {invoice[1]}")
-    pdf.drawString(100, 680, f"Amount: ${invoice[2]}")
-
-    pdf.save()
-    return send_file(filename, as_attachment=True)
-
-# --------------------
-# Run
-# --------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
