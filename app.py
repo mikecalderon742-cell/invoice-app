@@ -1,15 +1,24 @@
 print(">>> APP.PY LOADED <<<")
 
+import os
 import sqlite3
 from datetime import datetime
 from flask import Flask, request, redirect, send_file
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
+import stripe
 
 app = Flask(__name__)
 
 DATABASE = "invoices.db"
 FREE_INVOICE_LIMIT = 3
+
+# ---------- STRIPE ----------
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
+BASE_URL = os.getenv("BASE_URL")
+
+print("BASE_URL =", BASE_URL)
 
 # ---------- DATABASE ----------
 def init_db():
@@ -71,9 +80,7 @@ def home():
     remaining = "Unlimited" if paid else max(0, FREE_INVOICE_LIMIT - count)
     status = "Pro (Unlimited)" if paid else f"Free ({remaining} left)"
 
-    upgrade_link = ""
-    if not paid:
-        upgrade_link = "<p><a href='/upgrade'>Upgrade to Pro</a></p>"
+    upgrade_link = "" if paid else "<p><a href='/upgrade'>Upgrade to Pro</a></p>"
 
     return f"""
     <h2>Create Invoice</h2>
@@ -87,7 +94,6 @@ def home():
     </form>
 
     {upgrade_link}
-
     <a href="/invoices">View invoices</a>
     """
 
@@ -145,18 +151,23 @@ def pdf(invoice_id):
 
     return send_file(path, as_attachment=True)
 
+# ---------- STRIPE ----------
 @app.route("/upgrade")
 def upgrade():
-    return """
-    <h2>Upgrade Required</h2>
-    <p>You’ve reached the free invoice limit.</p>
-    <p>Stripe coming next.</p>
-    <a href="/">Back</a>
-    """
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        line_items=[{
+            "price": STRIPE_PRICE_ID,
+            "quantity": 1
+        }],
+        success_url=f"{BASE_URL}/success",
+        cancel_url=f"{BASE_URL}/"
+    )
+    return redirect(session.url)
 
 @app.route("/success")
 def success():
-    return "<h1>SUCCESS PAGE ✅</h1><a href='/'>Home</a>"
+    return "<h1>Payment successful ✅</h1><a href='/'>Go home</a>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
