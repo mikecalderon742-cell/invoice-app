@@ -1,270 +1,149 @@
-print(">>> APP.PY LOADED <<<")
-
 import os
-import sqlite3
 import stripe
-from flask import Flask, request, redirect, send_file, abort
-from reportlab.lib.pagesizes import LETTER
-from reportlab.pdfgen import canvas
-from datetime import datetime
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from urllib.parse import urlparse
+from flask import Flask, request, session, redirect, render_template
 
-# ======================
-# App configuration
-# ======================
-
+# -------------------------
+# App setup
+# -------------------------
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
 
-BASE_URL = os.environ.get("BASE_URL", "http://localhost:10000")
-print("BASE_URL =", BASE_URL)
+stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+print(">>> APP.PY LOADED <<<")
+print("BASE_URL =", os.environ.get("BASE_URL"))
 
-DB_PATH = "invoices.db"
-FREE_INVOICE_LIMIT = 3
+# -------------------------
+# Database helpers (Step 1.2)
+# -------------------------
+def get_db():
+    url = urlparse(os.environ["DATABASE_URL"])
+    return psycopg2.connect(
+        dbname=url.path[1:],
+        user=url.username,
+        password=url.password,
+        host=url.hostname,
+        port=url.port,
+        cursor_factory=RealDictCursor,
+    )
 
-# ======================
-# Database helpers
-# ======================
-
-def db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
+# -------------------------
+# Init DB + users table (Step 1.3)
+# -------------------------
 def init_db():
-    con = db()
-    cur = con.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item TEXT,
-            client TEXT,
-            amount REAL,
-            created_at TEXT
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-
-    con.commit()
-    con.close()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    stripe_customer_id TEXT UNIQUE,
+                    is_pro BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        conn.commit()
 
 init_db()
 
-def get_setting(key):
-    con = db()
-    cur = con.cursor()
-    cur.execute("SELECT value FROM settings WHERE key=?", (key,))
-    row = cur.fetchone()
-    con.close()
-    return row[0] if row else None
+# -------------------------
+# User loader / creator (Step 1.4)
+# -------------------------
+def get_current_user():
+    user_id = session.get("user_id")
 
-def set_setting(key, value):
-    con = db()
-    cur = con.cursor()
-    cur.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (key, value)
-    )
-    con.commit()
-    con.close()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            if user_id:
+                cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+                user = cur.fetchone()
+                if user:
+                    return user
 
-# ======================
-# Stripe logic
-# ======================
+            # create new user
+            cur.execute("INSERT INTO users DEFAULT VALUES RETURNING *")
+            user = cur.fetchone()
+            session["user_id"] = user["id"]
+            conn.commit()
+            return user
 
-def is_paid():
-    customer_id = get_setting("stripe_customer_id")
-    if not customer_id:
-        return False
-
-    try:
-        subs = stripe.Subscription.list(
-            customer=customer_id,
-            status="active",
-            limit=1
-        )
-        return len(subs.data) > 0
-    except Exception as e:
-        print("Stripe error:", e)
-        return False
-
-# ======================
-# Invoice logic
-# ======================
-
-def invoice_count():
-    con = db()
-    cur = con.cursor()
-    cur.execute("SELECT COUNT(*) FROM invoices")
-    count = cur.fetchone()[0]
-    con.close()
-    return count
-
-def can_create_invoice():
-    return is_paid() or invoice_count() < FREE_INVOICE_LIMIT
-
-# ======================
+# -------------------------
 # Routes
-# ======================
-
-@app.route("/health")
-def health():
-    return "OK", 200
-
+# -------------------------
 @app.route("/")
 def home():
-    paid = is_paid()
-    count = invoice_count()
-
-    con = db()
-    cur = con.cursor()
-    cur.execute("SELECT id, item, client, amount FROM invoices ORDER BY id DESC")
-    invoices = cur.fetchall()
-    con.close()
-
-    html = "<h1>Invoice App</h1>"
-
-    if paid:
-        html += "<p><strong>Premium account ✅</strong></p>"
-    else:
-        remaining = FREE_INVOICE_LIMIT - count
-        html += f"<p>Free invoices remaining: {remaining}</p>"
-        html += "<a href='/upgrade'>Upgrade to Pro</a><br><br>"
-
-    html += """
-        <h3>Create Invoice</h3>
-        <form method="POST" action="/create">
-            Item: <input name="item" required><br>
-            Client: <input name="client" required><br>
-            Amount: <input name="amount" type="number" step="0.01" required><br>
-            <button type="submit">Create Invoice</button>
-        </form>
-        <hr>
-        <h3>Invoices</h3>
-    """
-
-    for inv in invoices:
-        html += f"""
-            <p>
-                #{inv[0]} — {inv[1]} — {inv[2]} — ${inv[3]}
-                <a href="/pdf/{inv[0]}">Download PDF</a>
-            </p>
-        """
-
-    return html
-
-@app.route("/create", methods=["POST"])
-def create():
-    if not can_create_invoice():
-        return redirect("/upgrade")
-
-    item = request.form["item"]
-    client = request.form["client"]
-    amount = request.form["amount"]
-
-    con = db()
-    cur = con.cursor()
-    cur.execute(
-        "INSERT INTO invoices (item, client, amount, created_at) VALUES (?, ?, ?, ?)",
-        (item, client, amount, datetime.utcnow().isoformat())
+    user = get_current_user()
+    return render_template(
+        "index.html",
+        is_pro=user["is_pro"]
     )
-    con.commit()
-    con.close()
-
-    return redirect("/")
-
-@app.route("/pdf/<int:invoice_id>")
-def pdf(invoice_id):
-    con = db()
-    cur = con.cursor()
-    cur.execute(
-        "SELECT item, client, amount, created_at FROM invoices WHERE id=?",
-        (invoice_id,)
-    )
-    row = cur.fetchone()
-    con.close()
-
-    if not row:
-        abort(404)
-
-    item, client, amount, created_at = row
-
-    filename = f"invoice_{invoice_id}.pdf"
-    c = canvas.Canvas(filename, pagesize=LETTER)
-
-    c.drawString(100, 750, "Invoice")
-    c.drawString(100, 720, f"Item: {item}")
-    c.drawString(100, 700, f"Client: {client}")
-    c.drawString(100, 680, f"Amount: ${amount}")
-    c.drawString(100, 660, f"Date: {created_at}")
-
-    c.save()
-    return send_file(filename, as_attachment=True)
-
-# ======================
-# Stripe checkout
-# ======================
 
 @app.route("/upgrade")
 def upgrade():
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        line_items=[{
-            "price": STRIPE_PRICE_ID,
-            "quantity": 1
-        }],
-        success_url=BASE_URL + "/success",
-        cancel_url=BASE_URL,
+    user = get_current_user()
+
+    checkout_session = stripe.checkout.Session.create(
+        mode="payment",
+        payment_method_types=["card"],
+        success_url=os.environ["BASE_URL"] + "/success",
+        cancel_url=os.environ["BASE_URL"],
     )
-    return redirect(session.url, code=303)
+
+    return redirect(checkout_session.url, code=303)
 
 @app.route("/success")
 def success():
-    return "<h1>Payment successful 🎉</h1><a href='/'>Return home</a>"
+    return render_template("success.html")
 
-# ======================
-# Stripe webhook (CRITICAL)
-# ======================
-
+# -------------------------
+# Stripe webhook (Step 1.6)
+# -------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    print(">>> WEBHOOK HIT <<<")
-
     payload = request.data
-    sig = request.headers.get("Stripe-Signature")
+    sig_header = request.headers.get("Stripe-Signature")
 
     try:
         event = stripe.Webhook.construct_event(
             payload,
-            sig,
-            STRIPE_WEBHOOK_SECRET
+            sig_header,
+            os.environ["STRIPE_WEBHOOK_SECRET"],
         )
     except Exception as e:
-        print("❌ WEBHOOK VERIFY FAILED:", e)
-        return "Invalid", 400
+        print("Webhook verification failed:", e)
+        return "Invalid signature", 400
 
+    print(">>> WEBHOOK HIT <<<")
     print("EVENT TYPE:", event["type"])
 
     if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        customer_id = session.get("customer")
-        print(">>> CHECKOUT COMPLETED <<<", customer_id)
+        session_obj = event["data"]["object"]
+        customer_id = session_obj.get("customer")
 
         if customer_id:
-            set_setting("stripe_customer_id", customer_id)
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE users
+                        SET is_pro = TRUE,
+                            stripe_customer_id = %s
+                        WHERE id = (
+                            SELECT id FROM users
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        )
+                    """, (customer_id,))
+                conn.commit()
 
-    return "OK", 200
+            print(">>> CHECKOUT COMPLETED <<<", customer_id)
 
-# ======================
-# Local run
-# ======================
+    return "ok", 200
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+# -------------------------
+# Health check (Render)
+# -------------------------
+@app.route("/health")
+def health():
+    return "ok", 200
