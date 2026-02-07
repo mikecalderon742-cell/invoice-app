@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invoice App</title>
+</head>
+<body>
+    <h1>Invoice Generator</h1>
+
+    {% if is_pro %}
+        <p>✅ Pro account active</p>
+    {% else %}
+        <p>❌ Free account</p>
+        <a href="/checkout">Upgrade to Pro</a>
+    {% endif %}
+</body>
+</html>
