@@ -1,77 +1,36 @@
 import os
+from flask import Flask, render_template, redirect, session, url_for
 import stripe
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from urllib.parse import urlparse
-from flask import Flask, request, session, redirect, render_template
 
-# -------------------------
-# App setup
-# -------------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
 
-stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+# ======================
+# CONFIG
+# ======================
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
+
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
+
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
 
 print(">>> APP.PY LOADED <<<")
-print("BASE_URL =", os.environ.get("BASE_URL"))
+print("BASE_URL =", BASE_URL)
 
-# -------------------------
-# Database helpers (Step 1.2)
-# -------------------------
-def get_db():
-    url = urlparse(os.environ["DATABASE_URL"])
-    return psycopg2.connect(
-        dbname=url.path[1:],
-        user=url.username,
-        password=url.password,
-        host=url.hostname,
-        port=url.port,
-        cursor_factory=RealDictCursor,
-    )
-
-# -------------------------
-# Init DB + users table (Step 1.3)
-# -------------------------
-def init_db():
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    stripe_customer_id TEXT UNIQUE,
-                    is_pro BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-        conn.commit()
-
-init_db()
-
-# -------------------------
-# User loader / creator (Step 1.4)
-# -------------------------
+# ======================
+# HELPERS
+# ======================
 def get_current_user():
-    user_id = session.get("user_id")
+    # Simple session-based user for now
+    if "user" not in session:
+        session["user"] = {
+            "is_pro": False
+        }
+    return session["user"]
 
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            if user_id:
-                cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-                user = cur.fetchone()
-                if user:
-                    return user
-
-            # create new user
-            cur.execute("INSERT INTO users DEFAULT VALUES RETURNING *")
-            user = cur.fetchone()
-            session["user_id"] = user["id"]
-            conn.commit()
-            return user
-
-# -------------------------
-# Routes
-# -------------------------
+# ======================
+# ROUTES
+# ======================
 @app.route("/")
 def home():
     user = get_current_user()
@@ -80,70 +39,40 @@ def home():
         is_pro=user["is_pro"]
     )
 
-@app.route("/upgrade")
-def upgrade():
-    user = get_current_user()
-
+@app.route("/checkout")
+def checkout():
+    """
+    This matches <a href="/checkout">Upgrade to Pro</a>
+    """
     checkout_session = stripe.checkout.Session.create(
         mode="payment",
         payment_method_types=["card"],
-        success_url=os.environ["BASE_URL"] + "/success",
-        cancel_url=os.environ["BASE_URL"],
+        line_items=[
+            {
+                "price": STRIPE_PRICE_ID,
+                "quantity": 1,
+            }
+        ],
+        success_url=f"{BASE_URL}/success",
+        cancel_url=f"{BASE_URL}/",
     )
 
     return redirect(checkout_session.url, code=303)
 
 @app.route("/success")
 def success():
-    return render_template("success.html")
+    user = get_current_user()
+    user["is_pro"] = True
+    session["user"] = user
+    return redirect(url_for("home"))
 
-# -------------------------
-# Stripe webhook (Step 1.6)
-# -------------------------
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    payload = request.data
-    sig_header = request.headers.get("Stripe-Signature")
-
-    try:
-        event = stripe.Webhook.construct_event(
-            payload,
-            sig_header,
-            os.environ["STRIPE_WEBHOOK_SECRET"],
-        )
-    except Exception as e:
-        print("Webhook verification failed:", e)
-        return "Invalid signature", 400
-
-    print(">>> WEBHOOK HIT <<<")
-    print("EVENT TYPE:", event["type"])
-
-    if event["type"] == "checkout.session.completed":
-        session_obj = event["data"]["object"]
-        customer_id = session_obj.get("customer")
-
-        if customer_id:
-            with get_db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE users
-                        SET is_pro = TRUE,
-                            stripe_customer_id = %s
-                        WHERE id = (
-                            SELECT id FROM users
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        )
-                    """, (customer_id,))
-                conn.commit()
-
-            print(">>> CHECKOUT COMPLETED <<<", customer_id)
-
-    return "ok", 200
-
-# -------------------------
-# Health check (Render)
-# -------------------------
 @app.route("/health")
 def health():
-    return "ok", 200
+    return "OK", 200
+
+# ======================
+# LOCAL DEV
+# ======================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
